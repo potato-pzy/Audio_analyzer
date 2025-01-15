@@ -1,0 +1,108 @@
+'''
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Speaker Recognition System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .upload-section {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .error {
+            background-color: #ffe6e6;
+            color: #cc0000;
+        }
+        .success {
+            background-color: #e6ffe6;
+            color: #006600;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Speaker Recognition System</h1>
+        <div class="upload-section">
+            <form id="uploadForm">
+                <input type="file" id="audioFile" accept=".wav" required>
+                <button type="submit">Analyze</button>
+            </form>
+        </div>
+        <div id="result" class="result"></div>
+    </div>
+
+    <script>
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('audioFile');
+            const resultDiv = document.getElementById('result');
+            
+            if (!fileInput.files.length) {
+                showResult('Please select a file', true);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`Predicted Speaker: ${data.prediction}`, false);
+                } else {
+                    showResult(data.error, true);
+                }
+            } catch (error) {
+                showResult('An error occurred while processing the request', true);
+            }
+        });
+
+        function showResult(message, isError) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result ' + (isError ? 'error' : 'success');
+        }
+    </script>
+</body>
+</html>
