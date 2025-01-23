@@ -1,8 +1,9 @@
-'''
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Speaker Recognition System</title>
+    <meta charset="UTF-8">
+    <title>Speaker Recognition Recorder</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -21,7 +22,7 @@
             color: #333;
             text-align: center;
         }
-        .upload-section {
+        .controls {
             margin: 20px 0;
             text-align: center;
         }
@@ -46,31 +47,101 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            margin: 5px;
         }
         button:hover {
             background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Speaker Recognition System</h1>
+        
+        <div class="controls">
+            <button id="startRecording">Start Recording</button>
+            <button id="stopRecording" disabled>Stop Recording</button>
+        </div>
+        
         <div class="upload-section">
             <form id="uploadForm">
-                <input type="file" id="audioFile" accept=".wav" required>
-                <button type="submit">Analyze</button>
+                <input type="file" id="audioFile" accept=".wav">
+                <button type="submit">Upload Audio File</button>
             </form>
         </div>
+        
         <div id="result" class="result"></div>
     </div>
 
     <script>
+        let rec;
+        let audioChunks = [];
+
+        navigator
+            .mediaDevices
+            .getUserMedia({audio: true})
+            .then(stream => { handlerFunction(stream) });
+
+        function handlerFunction(stream) {
+            rec = new MediaRecorder(stream);
+            rec.ondataavailable = e => {
+                audioChunks.push(e.data);
+                if (rec.state == "inactive") {
+                    let blob = new Blob(audioChunks, {type: 'audio/wav'});
+                    sendData(blob);
+                }
+            }
+        }
+
+        function sendData(data) {
+            var form = new FormData();
+            form.append('file', data, 'recording.wav');
+            
+            $.ajax({
+                type: 'POST',
+                url: '/predict',
+                data: form,
+                cache: false,
+                processData: false,
+                contentType: false
+            }).done(function(data) {
+                showResult(`Predicted Speaker: ${data.prediction}`, false);
+            }).fail(function(jqXHR, textStatus, errorThrown) {
+                showResult('Error processing audio: ' + errorThrown, true);
+            });
+        }
+
+        function showResult(message, isError) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result ' + (isError ? 'error' : 'success');
+        }
+
+        startRecording.onclick = e => {
+            console.log('Recording started...');
+            startRecording.disabled = true;
+            stopRecording.disabled = false;
+            audioChunks = [];
+            rec.start();
+        };
+
+        stopRecording.onclick = e => {
+            console.log("Recording stopped.");
+            startRecording.disabled = false;
+            stopRecording.disabled = true;
+            rec.stop();
+        };
+
+        // File upload handling
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
             const fileInput = document.getElementById('audioFile');
-            const resultDiv = document.getElementById('result');
-            
             if (!fileInput.files.length) {
                 showResult('Please select a file', true);
                 return;
@@ -86,7 +157,6 @@
                 });
                 
                 const data = await response.json();
-                
                 if (response.ok) {
                     showResult(`Predicted Speaker: ${data.prediction}`, false);
                 } else {
@@ -96,13 +166,6 @@
                 showResult('An error occurred while processing the request', true);
             }
         });
-
-        function showResult(message, isError) {
-            const resultDiv = document.getElementById('result');
-            resultDiv.textContent = message;
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'result ' + (isError ? 'error' : 'success');
-        }
     </script>
 </body>
 </html>
