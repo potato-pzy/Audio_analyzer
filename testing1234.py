@@ -1,10 +1,13 @@
 import os
 import uuid
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string,Flask,request,jsonify, render_template_string, render_template, redirect, url_for, session, flash
 import numpy as np
 import librosa
 import joblib
 import soundfile as sf
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import scipy.io.wavfile as wav
 
 app = Flask(__name__)
@@ -20,100 +23,266 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 CLASSES = ["original", "fake"]
+# Initialize SQLAlchemy
+db = SQLAlchemy()
 
+# Add this model class
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(150), nullable=False, unique=True)
+    password = db.Column(db.String(150), nullable=False)
+    role = db.Column(db.String(50), nullable=False, default="user")
+
+# Add this decorator function
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('You need to log in first.', 'danger')
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+# Add these configurations in your create_app() or main app
+app.config['SECRET_KEY'] = 'your_secret_key_here'  # Change this!
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///speaker_recognition.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Initialize the database
+db.init_app(app)
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        user = User.query.filter_by(username=username).first()
+
+        if user and check_password_hash(user.password, password):
+            session['user_id'] = user.id
+            flash('Login successful!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid username or password.', 'danger')
+
+    return render_template('login.html')
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists.', 'danger')
+            return redirect(url_for('register'))
+
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+        new_user = User(username=username, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+
+        flash('Registration successful! Please log in.', 'success')
+        return redirect(url_for('login'))
+
+    return render_template('register.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+
+# Create all tables
+with app.app_context():
+    db.create_all()
 # HTML template
+
 HTML_TEMPLATE = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Speaker Recognition Recorder</title>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
     <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background-color: #f5f5f5;
+            min-height: 100vh;
         }
+
         .container {
+            padding: 16px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .card {
             background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-radius: 16px;
+            padding: 24px 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 16px;
         }
+
         h1 {
-            color: #333;
+            color: #1a1a1a;
+            font-size: 1.5rem;
             text-align: center;
+            margin-bottom: 24px;
         }
+
         .controls {
-            margin: 20px 0;
-            text-align: center;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 24px;
         }
-        .result {
-            margin-top: 20px;
-            padding: 10px;
-            border-radius: 4px;
-            display: none;
-        }
-        .error {
-            background-color: #ffe6e6;
-            color: #cc0000;
-        }
-        .success {
-            background-color: #e6ffe6;
-            color: #006600;
-        }
+
         button {
             background-color: #4CAF50;
             color: white;
-            padding: 10px 20px;
+            padding: 16px;
             border: none;
-            border-radius: 4px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
             cursor: pointer;
-            margin: 5px;
+            transition: background-color 0.2s;
+            width: 100%;
+            -webkit-tap-highlight-color: transparent;
         }
-        button:hover {
-            background-color: #45a049;
+
+        button:active {
+            transform: scale(0.98);
         }
+
         button:disabled {
             background-color: #cccccc;
-            cursor: not-allowed;
+            transform: none;
         }
+
         .upload-section {
-            margin: 20px 0;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+        }
+
+        .file-input-wrapper {
+            margin-bottom: 12px;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #ccc;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 12px;
+            display: none;
             text-align: center;
+            font-weight: 500;
+        }
+
+        .error {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+
+        .success {
+            background-color: #dcfce7;
+            color: #16a34a;
+        }
+
+        @media (hover: hover) {
+            button:hover {
+                background-color: #45a049;
+            }
+        }
+
+        /* Status indicator */
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            background-color: #ccc;
+        }
+
+        .recording .status-indicator {
+            background-color: #dc2626;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Speaker Recognition System</h1>
-        
-        <div class="controls">
-            <button id="startRecording">Start Recording</button>
-            <button id="stopRecording" disabled>Stop Recording</button>
+        <div class="card">
+            <h1>Speaker Recognition</h1>
+            
+            <div class="controls">
+                <button id="startRecording">
+                    <span class="status-indicator"></span>
+                    Start Recording
+                </button>
+                <button id="stopRecording" disabled>Stop Recording</button>
+            </div>
+            
+            <div class="upload-section">
+                <form id="uploadForm">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="audioFile" accept=".wav">
+                    </div>
+                    <button type="submit">Upload Audio File</button>
+                </form>
+            </div>
+            
+            <div id="result" class="result"></div>
         </div>
-        
-        <div class="upload-section">
-            <form id="uploadForm">
-                <input type="file" id="audioFile" accept=".wav">
-                <button type="submit">Upload Audio File</button>
-            </form>
-        </div>
-        
-        <div id="result" class="result"></div>
     </div>
 
     <script>
         let rec;
         let audioChunks = [];
+        const startButton = document.getElementById('startRecording');
+        const stopButton = document.getElementById('stopRecording');
 
         navigator
             .mediaDevices
             .getUserMedia({audio: true})
-            .then(stream => { handlerFunction(stream) });
+            .then(stream => { handlerFunction(stream) })
+            .catch(error => {
+                showResult('Microphone access denied: ' + error.message, true);
+            });
 
         function handlerFunction(stream) {
             rec = new MediaRecorder(stream, {
@@ -218,22 +387,23 @@ HTML_TEMPLATE = '''
             resultDiv.className = 'result ' + (isError ? 'error' : 'success');
         }
 
-        startRecording.onclick = e => {
+        startButton.onclick = e => {
             console.log('Recording started...');
-            startRecording.disabled = true;
-            stopRecording.disabled = false;
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            startButton.parentElement.classList.add('recording');
             audioChunks = [];
             rec.start();
         };
 
-        stopRecording.onclick = e => {
+        stopButton.onclick = e => {
             console.log("Recording stopped.");
-            startRecording.disabled = false;
-            stopRecording.disabled = true;
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            startButton.parentElement.classList.remove('recording');
             rec.stop();
         };
 
-        // File upload handling
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -266,7 +436,6 @@ HTML_TEMPLATE = '''
 </body>
 </html>
 '''
-
 # Load the trained model
 try:
     model = joblib.load(MODEL_PATH)
@@ -327,6 +496,7 @@ def predict_speaker(file_path):
         return f"Error processing file: {str(e)}"
 
 @app.route('/')
+@login_required
 def index():
     return render_template_string(HTML_TEMPLATE)
 
