@@ -1,11 +1,4 @@
 import os
-<<<<<<< HEAD
-from flask import Flask, render_template, request, jsonify
-import numpy as np
-import librosa
-import joblib
-from werkzeug.utils import secure_filename
-=======
 import uuid
 from flask import Flask, request, jsonify, render_template_string,Flask,request,jsonify, render_template_string, render_template, redirect, url_for, session, flash
 import numpy as np
@@ -19,23 +12,10 @@ import scipy.io.wavfile as wav
 import requests
 from pydub import AudioSegment
 import io
->>>>>>> 5c47e85 (added transcription)
 
 app = Flask(__name__)
 
 # Configuration
-<<<<<<< HEAD
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-MODEL_PATH = "speaker_recognition_model.pkl"
-ALLOWED_EXTENSIONS = {'wav'}
-
-# Create upload folder if it doesn't exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Define classes (same order as during training)
-CLASSES = ["original", "fake"]
-=======
 UPLOAD_FOLDER = 'files'
 MODEL_PATH = "speaker_recognition_model.pkl"
 ALLOWED_EXTENSIONS = {'wav'}
@@ -296,7 +276,7 @@ HTML_TEMPLATE = '''
             <div class="upload-section">
                 <form id="uploadForm">
                     <div class="file-input-wrapper">
-                        <input type="file" id="audioFile" accept="audio/*">
+                        <input type="file" id="audioFile" accept=".wav,.webm">
                     </div>
                     <button type="submit">Upload Audio File</button>
                 </form>
@@ -307,35 +287,38 @@ HTML_TEMPLATE = '''
     </div>
 
     <script>
-        let mediaRecorder;
-        let audioContext;
+        let rec;
         let audioChunks = [];
         const startButton = document.getElementById('startRecording');
         const stopButton = document.getElementById('stopRecording');
+
+        // Disable start button initially
+        startButton.disabled = true;
 
         async function setupRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
-                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
                         sampleRate: 44100
                     }
                 });
                 
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: 44100
+                console.log('Microphone permission granted');
+                rec = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
                 });
                 
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus',
-                    audioBitsPerSecond: 128000
-                });
-                
-                mediaRecorder.ondataavailable = async (e) => {
+                rec.ondataavailable = e => {
                     audioChunks.push(e.data);
-                    if (mediaRecorder.state === "inactive") {
+                    if (rec.state === "inactive") {
                         const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                        await processAndSendAudio(blob);
+                        convertToWav(blob).then(wavBlob => {
+                            sendData(wavBlob);
+                        }).catch(error => {
+                            showResult('Error converting audio: ' + error.message, true);
+                        });
                     }
                 };
                 
@@ -346,25 +329,54 @@ HTML_TEMPLATE = '''
             }
         }
 
-        async function processAndSendAudio(blob) {
-            try {
-                const arrayBuffer = await blob.arrayBuffer();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                
-                // Convert to 16-bit PCM
-                const pcmData = new Int16Array(audioBuffer.length);
-                const channelData = audioBuffer.getChannelData(0);
-                
-                for (let i = 0; i < channelData.length; i++) {
-                    const s = Math.max(-1, Math.min(1, channelData[i]));
-                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        // Function to convert audio blob to WAV format
+        async function convertToWav(blob) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const arrayBuffer = await blob.arrayBuffer();
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            
+            // Create WAV file
+            const numberOfChannels = audioBuffer.numberOfChannels;
+            const length = audioBuffer.length * numberOfChannels * 2;
+            const buffer = new ArrayBuffer(44 + length);
+            const view = new DataView(buffer);
+            
+            // Write WAV header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numberOfChannels, true);
+            view.setUint32(24, audioBuffer.sampleRate, true);
+            view.setUint32(28, audioBuffer.sampleRate * numberOfChannels * 2, true);
+            view.setUint16(32, numberOfChannels * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, length, true);
+
+            // Write audio data
+            const channels = [];
+            for (let i = 0; i < numberOfChannels; i++) {
+                channels.push(audioBuffer.getChannelData(i));
+            }
+
+            let offset = 44;
+            for (let i = 0; i < audioBuffer.length; i++) {
+                for (let channel = 0; channel < numberOfChannels; channel++) {
+                    const sample = Math.max(-1, Math.min(1, channels[channel][i]));
+                    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    offset += 2;
                 }
-                
-                const wavBlob = new Blob([pcmData.buffer], { type: 'audio/wav' });
-                sendData(wavBlob);
-            } catch (error) {
-                console.error('Error processing audio:', error);
-                showResult('Error processing audio: ' + error.message, true);
+            }
+
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
             }
         }
 
@@ -411,7 +423,7 @@ HTML_TEMPLATE = '''
             stopButton.disabled = false;
             startButton.parentElement.classList.add('recording');
             audioChunks = [];
-            mediaRecorder.start();
+            rec.start();
         };
 
         stopButton.onclick = e => {
@@ -419,7 +431,7 @@ HTML_TEMPLATE = '''
             startButton.disabled = false;
             stopButton.disabled = true;
             startButton.parentElement.classList.remove('recording');
-            mediaRecorder.stop();
+            rec.stop();
         };
 
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
@@ -433,22 +445,35 @@ HTML_TEMPLATE = '''
 
             const file = fileInput.files[0];
             try {
-                const arrayBuffer = await file.arrayBuffer();
-                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-                
-                // Convert to 16-bit PCM
-                const pcmData = new Int16Array(audioBuffer.length);
-                const channelData = audioBuffer.getChannelData(0);
-                
-                for (let i = 0; i < channelData.length; i++) {
-                    const s = Math.max(-1, Math.min(1, channelData[i]));
-                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                let blob;
+                if (file.type.includes('webm')) {
+                    blob = await convertToWav(file);
+                } else {
+                    blob = file;
                 }
+
+                const formData = new FormData();
+                formData.append('file', blob, 'audio.wav');
+
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
                 
-                const wavBlob = new Blob([pcmData.buffer], { type: 'audio/wav' });
-                sendData(wavBlob);
+                const data = await response.json();
+                if (response.ok) {
+                    const resultDiv = document.getElementById('result');
+                    resultDiv.innerHTML = `
+                        <div class="prediction">Predicted Speaker: ${data.prediction}</div>
+                        <div class="transcription">${data.transcription}</div>
+                    `;
+                    resultDiv.style.display = 'block';
+                    resultDiv.className = 'result success';
+                } else {
+                    showResult(data.error, true);
+                }
             } catch (error) {
-                showResult('Error processing audio file', true);
+                showResult('An error occurred while processing the request', true);
             }
         });
     </script>
@@ -466,46 +491,10 @@ except FileNotFoundError:
 except Exception as e:
     print(f"Error loading model: {str(e)}")
     model = None
->>>>>>> 5c47e85 (added transcription)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-<<<<<<< HEAD
-# Function to extract MFCC and delta features from audio
-def extract_features(file_path, n_mfcc=13):
-    audio, sample_rate = librosa.load(file_path, sr=None)
-    mfcc = librosa.feature.mfcc(y=audio, sr=sample_rate, n_mfcc=n_mfcc)
-    delta_mfcc = librosa.feature.delta(mfcc)
-    delta2_mfcc = librosa.feature.delta(mfcc, order=2)
-    # Concatenate MFCC, delta, and delta-delta features
-    features = np.concatenate((np.mean(mfcc.T, axis=0),
-                             np.mean(delta_mfcc.T, axis=0),
-                             np.mean(delta2_mfcc.T, axis=0)))
-    return features
-
-# Load the trained model
-try:
-    model = joblib.load(MODEL_PATH)
-except FileNotFoundError:
-    print(f"Error: Model file '{MODEL_PATH}' not found. Please train the model first.")
-    model = None
-
-# Function to predict the speaker of a given audio file
-def predict_speaker(file_path):
-    try:
-        features = extract_features(file_path)
-        prediction = model.predict([features])
-        predicted_class = CLASSES[prediction[0]]
-        return predicted_class
-    except Exception as e:
-        return f"Error processing file: {str(e)}"
-
-# Routes
-@app.route('/')
-def index():
-    return render_template('index.html')
-=======
 def extract_features(audio_data, sample_rate, n_mfcc=13):
     try:
         # Ensure audio is mono
@@ -596,7 +585,6 @@ def transcribe_audio(file_path):
 @login_required
 def index():
     return render_template_string(HTML_TEMPLATE)
->>>>>>> 5c47e85 (added transcription)
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -608,164 +596,23 @@ def predict():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
-<<<<<<< HEAD
-    if not allowed_file(file.filename):
-        return jsonify({'error': 'Invalid file type. Please upload a WAV file'}), 400
-    
-=======
->>>>>>> 5c47e85 (added transcription)
     if model is None:
         return jsonify({'error': 'Model not loaded. Please train the model first'}), 500
     
     try:
-<<<<<<< HEAD
-        # Save the uploaded file
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
-        
-        # Make prediction
-        result = predict_speaker(filepath)
-        
-        # Clean up the uploaded file
-        os.remove(filepath)
-        
-        return jsonify({'prediction': result})
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-# Create the HTML template
-@app.route('/templates/index.html')
-def get_template():
-    return '''
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Speaker Recognition System</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            background-color: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-        .upload-section {
-            margin: 20px 0;
-            text-align: center;
-        }
-        .result {
-            margin-top: 20px;
-            padding: 10px;
-            border-radius: 4px;
-            display: none;
-        }
-        .error {
-            background-color: #ffe6e6;
-            color: #cc0000;
-        }
-        .success {
-            background-color: #e6ffe6;
-            color: #006600;
-        }
-        button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        button:hover {
-            background-color: #45a049;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Speaker Recognition System</h1>
-        <div class="upload-section">
-            <form id="uploadForm">
-                <input type="file" id="audioFile" accept=".wav" required>
-                <button type="submit">Analyze</button>
-            </form>
-        </div>
-        <div id="result" class="result"></div>
-    </div>
-
-    <script>
-        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const fileInput = document.getElementById('audioFile');
-            const resultDiv = document.getElementById('result');
-            
-            if (!fileInput.files.length) {
-                showResult('Please select a file', true);
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-
-            try {
-                const response = await fetch('/predict', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showResult(`Predicted Speaker: ${data.prediction}`, false);
-                } else {
-                    showResult(data.error, true);
-                }
-            } catch (error) {
-                showResult('An error occurred while processing the request', true);
-            }
-        });
-
-        function showResult(message, isError) {
-            const resultDiv = document.getElementById('result');
-            resultDiv.textContent = message;
-            resultDiv.style.display = 'block';
-            resultDiv.className = 'result ' + (isError ? 'error' : 'success');
-        }
-    </script>
-</body>
-</html>
-'''
-
-if __name__ == '__main__':
-    app.run(debug=True)
-=======
-        # Create a temporary WAV file
+        # Save the uploaded file temporarily with .webm extension
+        temp_input = os.path.join(app.config['UPLOAD_FOLDER'], str(uuid.uuid4()) + ".webm")
         wav_output = os.path.join(app.config['UPLOAD_FOLDER'], str(uuid.uuid4()) + ".wav")
         
         try:
-            # Read the audio data directly from the request
-            audio_bytes = file.read()
+            # Save the uploaded file
+            file.save(temp_input)
             
-            # Convert to numpy array
-            audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+            # Load audio using librosa
+            audio_data, sr = librosa.load(temp_input, sr=44100, mono=True)
             
-            # Normalize the audio
-            audio_float = audio_array.astype(np.float32) / np.iinfo(np.int16).max
-            
-            # Save as WAV using scipy
-            wav.write(wav_output, 44100, audio_float)
+            # Save as WAV using soundfile
+            sf.write(wav_output, audio_data, sr, format='WAV')
             
             # Get prediction
             result = predict_speaker(wav_output)
@@ -786,6 +633,8 @@ if __name__ == '__main__':
         
         finally:
             # Clean up files
+            if os.path.exists(temp_input):
+                os.remove(temp_input)
             if os.path.exists(wav_output):
                 os.remove(wav_output)
             
@@ -801,4 +650,3 @@ if __name__ == "__main__":
         port=port_number,
         debug=True
     )
->>>>>>> 5c47e85 (added transcription)
