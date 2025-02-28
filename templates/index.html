@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speaker Recognition Recorder</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            min-height: 100vh;
+        }
+
+        .container {
+            padding: 16px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background-color: white;
+            border-radius: 16px;
+            padding: 24px 16px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            color: #1a1a1a;
+            font-size: 1.5rem;
+            text-align: center;
+            margin-bottom: 24px;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .container {
+    min-height: 100vh;
+    padding: 16px;
+    max-width: 600px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.card {
+    background-color: white;
+    border-radius: 16px;
+    padding: 24px 16px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 16px;
+    width: 100%;
+}
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            background-color: #cccccc;
+            transform: none;
+        }
+
+        .upload-section {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+        }
+
+        .file-input-wrapper {
+            margin-bottom: 12px;
+        }
+
+        input[type="file"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px dashed #ccc;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 12px;
+            display: none;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .error {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+
+        .success {
+            background-color: #dcfce7;
+            color: #16a34a;
+        }
+
+        @media (hover: hover) {
+            button:hover {
+                background-color: #45a049;
+            }
+        }
+
+        /* Status indicator */
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            background-color: #ccc;
+        }
+
+        .recording .status-indicator {
+            background-color: #dc2626;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.2);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+    <center>
+        <div class="card">
+            <h1>Speaker Recognition</h1>
+            
+            <div class="controls">
+                <button id="startRecording">
+                    <span class="status-indicator"></span>
+                    Start Recording
+                </button>
+                <button id="stopRecording" disabled>Stop Recording</button>
+            </div>
+            
+            <div class="upload-section">
+                <form id="uploadForm">
+                    <div class="file-input-wrapper">
+                        <input type="file" id="audioFile" accept=".wav">
+                    </div>
+                    <button type="submit">Upload Audio File</button>
+                </form>
+            </div>
+            
+            <div id="result" class="result"></div>
+        </div>
+    </center>
+    </div>
+
+    <script>
+        let rec;
+        let audioChunks = [];
+        const startButton = document.getElementById('startRecording');
+        const stopButton = document.getElementById('stopRecording');
+
+        // Request microphone permissions when the page loads
+        async function setupRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                console.log("Microphone permission granted");
+                
+                rec = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm'
+                });
+                
+                rec.ondataavailable = e => {
+                    audioChunks.push(e.data);
+                    if (rec.state === "inactive") {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        convertToWav(blob);
+                    }
+                };
+            } catch (error) {
+                console.error("Error accessing microphone:", error);
+                showResult('Microphone access denied: ' + error.message, true);
+            }
+        }
+
+        // Call setup when page loads
+        setupRecording();
+
+        async function convertToWav(webmBlob) {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            try {
+                const arrayBuffer = await webmBlob.arrayBuffer();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                // Convert to WAV
+                const wavBuffer = audioBufferToWav(audioBuffer);
+                const wavBlob = new Blob([wavBuffer], { type: 'audio/wav' });
+                
+                // Send to server
+                sendData(wavBlob);
+            } catch (error) {
+                console.error("Error converting audio:", error);
+                showResult('Error converting audio: ' + error.message, true);
+            }
+        }
+
+        function audioBufferToWav(buffer) {
+            const numOfChan = buffer.numberOfChannels;
+            const length = buffer.length * numOfChan * 2;
+            const buffer_length = buffer.length;
+            const sampleRate = buffer.sampleRate;
+            
+            const wav = new ArrayBuffer(44 + length);
+            const view = new DataView(wav);
+
+            // Write WAV header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + length, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numOfChan, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * 2 * numOfChan, true);
+            view.setUint16(32, numOfChan * 2, true);
+            view.setUint16(34, 16, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, length, true);
+
+            // Write audio data
+            const channelData = [];
+            for (let channel = 0; channel < numOfChan; channel++) {
+                channelData[channel] = buffer.getChannelData(channel);
+            }
+
+            let offset = 44;
+            for (let i = 0; i < buffer_length; i++) {
+                for (let channel = 0; channel < numOfChan; channel++) {
+                    const sample = channelData[channel][i];
+                    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    offset += 2;
+                }
+            }
+
+            return wav;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        function sendData(blob) {
+            const form = new FormData();
+            form.append('file', blob, 'recording.wav');
+            
+            fetch('/predict', {
+                method: 'POST',
+                body: form
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showResult(data.error, true);
+                } else {
+                    showResult(`Predicted Speaker: ${data.prediction}`, false, data.transcription);
+                }
+            })
+            .catch(error => {
+                console.error("Error sending data:", error);
+                showResult('Error processing audio: ' + error.message, true);
+            });
+        }
+
+        function showResult(message, isError, transcription) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = message;
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result ' + (isError ? 'error' : 'success');
+            if (transcription) {
+                resultDiv.textContent += `\nTranscription: ${transcription}`;
+            }
+        }
+
+        startButton.onclick = e => {
+            console.log('Recording started...');
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            startButton.parentElement.classList.add('recording');
+            audioChunks = [];
+            rec.start();
+        };
+
+        stopButton.onclick = e => {
+            console.log("Recording stopped.");
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            startButton.parentElement.classList.remove('recording');
+            rec.stop();
+        };
+
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('audioFile');
+            if (!fileInput.files.length) {
+                showResult('Please select a file', true);
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    showResult(`Predicted Speaker: ${data.prediction}`, false, data.transcription);
+                } else {
+                    showResult(data.error, true);
+                }
+            } catch (error) {
+                showResult('An error occurred while processing the request', true);
+            }
+        });
+    </script>
+</body>
+</html>
