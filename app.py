@@ -67,10 +67,16 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# Add these configurations in your create_app() or main app
-app.config['SECRET_KEY'] = 'your_secret_key_here'  # Change this!
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///speaker_recognition.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+ 
+from sqlalchemy import create_engine
+
+# SQLite database path
+db_uri = "sqlite:///speaker_recognition.db"
+
+# Create engine directly
+engine = create_engine(db_uri)
+
+
 
 # Initialize the database
 db.init_app(app)
