@@ -1,3 +1,4 @@
+streamlit
 Flask-SQLAlchemy==3.1.1
 audioread==3.0.1
 blinker==1.9.0
