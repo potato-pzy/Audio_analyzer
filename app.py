@@ -13,7 +13,7 @@ import requests
 from pydub import AudioSegment
 import io
 
-app = Flask(__name__)
+
 
 # Configuration
 UPLOAD_FOLDER = 'files'
