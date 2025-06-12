@@ -20,10 +20,30 @@ UPLOAD_FOLDER = 'files'
 MODEL_PATH = "speaker_recognition_model.pkl"
 ALLOWED_EXTENSIONS = {'wav'}
 
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+ 
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB
 
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+# Make sure upload folder exists
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+st.title("Upload any file")
+
+uploaded_file = st.file_uploader("Choose a file")
+
+if uploaded_file is not None:
+    # Check file size
+    uploaded_file.seek(0, os.SEEK_END)
+    file_size = uploaded_file.tell()
+    uploaded_file.seek(0)
+
+    if file_size > MAX_CONTENT_LENGTH:
+        st.error("File too large! Max size is 16MB.")
+    else:
+        file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        st.success(f"File saved to {file_path}")ok=True)
+        
 
 CLASSES = ["original", "fake"]
 # Initialize SQLAlchemy
